@@ -6,6 +6,7 @@
 Εκκίνηση: streamlit run app.py
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -22,6 +23,9 @@ HF_FILENAME = "open_council_20260603.parquet"
 SEARCH_MODEL = "intfloat/multilingual-e5-small"
 CHUNKS_FILE = DATA_DIR / "search_chunks.parquet"
 EMBEDDINGS_FILE = DATA_DIR / "search_embeddings.npy"
+
+# Αυτόματες συνόψεις συνεδριάσεων (τις φτιάχνει το build_summaries.py)
+SUMMARIES_DIR = Path(__file__).parent / "summaries"
 
 # Οι στήλες που χρειάζεται η εφαρμογή (το αρχείο έχει πολλές περισσότερες)
 COLUMNS = [
@@ -122,6 +126,15 @@ def search(query, city=None, top_k=10):
     best = np.argsort(-scores)[:top_k]
     best = best[np.isfinite(scores[best])]
     return chunks.iloc[best].assign(score=scores[best])
+
+
+@st.cache_data
+def load_summaries(city_id):
+    """Οι συνόψεις ενός δήμου ({meeting_id: {...}}), ή {} αν δεν υπάρχει αρχείο."""
+    path = SUMMARIES_DIR / f"{city_id}.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def vote_text(row):
@@ -245,6 +258,8 @@ st.subheader("Θέματα συνεδρίασης")
 meetings = (
     city_df.groupby("meeting_key")
     .agg(
+        city_id=("city_id", "first"),
+        meeting_id=("meeting_id", "first"),
         meeting_name=("meeting_name", "first"),
         meeting_date=("meeting_date", "first"),
         meeting_url=("meeting_url", "first"),
@@ -265,6 +280,15 @@ meeting = meetings.loc[meeting_key]
 
 if meeting["meeting_url"]:
     st.markdown(f"[Η συνεδρίαση στο OpenCouncil]({meeting['meeting_url']})")
+
+summary = load_summaries(meeting["city_id"]).get(meeting["meeting_id"])
+with st.container(border=True):
+    st.markdown("**Σύνοψη (αυτόματη, με AI)**")
+    if summary:
+        st.markdown(summary["summary"])
+        st.caption("Η σύνοψη δημιουργήθηκε αυτόματα και μπορεί να περιέχει λάθη.")
+    else:
+        st.write("Δεν υπάρχει διαθέσιμη σύνοψη για αυτή τη συνεδρίαση.")
 
 subjects = city_df[city_df["meeting_key"] == meeting_key].sort_values(
     "agenda_order", na_position="last"
