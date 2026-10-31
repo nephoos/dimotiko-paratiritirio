@@ -103,6 +103,9 @@ def ask_gemini(client, prompt):
         except errors.APIError as error:
             if error.code not in (429, 503) or attempt == MAX_RETRIES:
                 raise
+            # Το ημερήσιο όριο δεν ξεπερνιέται με αναμονή λεπτών: σταματάμε (οι συνόψεις έχουν αποθηκευτεί)
+            if error.code == 429 and "PerDay" in str(error):
+                raise SystemExit("Εξαντλήθηκε το ημερήσιο όριο αιτημάτων. Ξανατρέξτε το script αύριο.")
             print(f"  Σφάλμα {error.code}, νέα προσπάθεια σε {wait} δευτ.…")
             time.sleep(wait)
             wait *= 2
