@@ -9,6 +9,7 @@
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -16,6 +17,11 @@ import streamlit as st
 DATA_DIR = Path(__file__).parent / "data"
 HF_REPO_ID = "glossAPI/OpenCouncil"
 HF_FILENAME = "open_council_20260603.parquet"
+
+# Ευρετήριο αναζήτησης (το φτιάχνει το build_index.py)
+SEARCH_MODEL = "intfloat/multilingual-e5-small"
+CHUNKS_FILE = DATA_DIR / "search_chunks.parquet"
+EMBEDDINGS_FILE = DATA_DIR / "search_embeddings.npy"
 
 # Οι στήλες που χρειάζεται η εφαρμογή (το αρχείο έχει πολλές περισσότερες)
 COLUMNS = [
@@ -89,6 +95,33 @@ def load_data():
 
     df["topic_name"] = df["topic_name"].fillna("").str.strip().replace("", "Χωρίς θεματική")
     return df
+
+
+@st.cache_resource(show_spinner="Φόρτωση μοντέλου αναζήτησης…")
+def load_search_model():
+    """Το μοντέλο embeddings φορτώνεται μία φορά και μοιράζεται σε όλους τους χρήστες."""
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(SEARCH_MODEL, device="cpu")
+
+
+@st.cache_data(show_spinner="Φόρτωση ευρετηρίου αναζήτησης…")
+def load_search_index():
+    """Επιστρέφει τα κομμάτια των συζητήσεων και τα embeddings τους."""
+    return pd.read_parquet(CHUNKS_FILE), np.load(EMBEDDINGS_FILE)
+
+
+def search(query, city=None, top_k=10):
+    """Τα top_k πιο σχετικά κομμάτια για την ερώτηση (σε έναν δήμο ή σε όλους)."""
+    chunks, embeddings = load_search_index()
+    # Το e5 θέλει το πρόθεμα «query: » στις ερωτήσεις
+    query_emb = load_search_model().encode(f"query: {query}", normalize_embeddings=True)
+    scores = embeddings @ query_emb  # ομοιότητα συνημιτόνου (όλα είναι κανονικοποιημένα)
+    if city is not None:
+        scores = np.where(chunks["city_name"] == city, scores, -np.inf)
+    best = np.argsort(-scores)[:top_k]
+    best = best[np.isfinite(scores[best])]
+    return chunks.iloc[best].assign(score=scores[best])
 
 
 def vote_text(row):
@@ -169,6 +202,41 @@ with right:
     fig = px.bar(topics, x="Θέματα", y="Θεματική", orientation="h")
     fig.update_yaxes(categoryorder="total ascending", title=None)
     st.plotly_chart(fig, width="stretch")
+
+# ------------------------------------------------- Αναζήτηση στις συζητήσεις
+
+st.subheader("Αναζήτηση στις συζητήσεις")
+
+if not (CHUNKS_FILE.exists() and EMBEDDINGS_FILE.exists()):
+    st.info("Δεν βρέθηκε ευρετήριο αναζήτησης. Τρέξτε πρώτα: `python build_index.py`")
+else:
+    query = st.text_input(
+        "Τι θέλετε να βρείτε;",
+        placeholder="π.χ. καθαριότητα, ποδηλατόδρομος, παιδική φτώχεια",
+    )
+    scope = st.radio(
+        "Πού να γίνει η αναζήτηση",
+        options=["Μόνο στον επιλεγμένο δήμο", "Σε όλους τους δήμους"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if query.strip():
+        results = search(query, city=city if scope == "Μόνο στον επιλεγμένο δήμο" else None)
+        if results.empty:
+            st.write("Δεν βρέθηκαν συζητήσεις με απομαγνητοφώνηση σε αυτόν τον δήμο.")
+        for result in results.itertuples():
+            with st.container(border=True):
+                st.markdown(f"**{result.subject_name}**")
+                st.caption(
+                    f"{result.city_name} · {result.meeting_date:%d/%m/%Y} · {result.meeting_name}"
+                )
+                st.write(f"«…{result.text}…»")
+                if result.meeting_url:
+                    st.markdown(f"[Η συνεδρίαση στο OpenCouncil]({result.meeting_url})")
+        st.caption(
+            "Η αναζήτηση βρίσκει αποσπάσματα με παρόμοιο νόημα, όχι μόνο ίδιες λέξεις. "
+            "Καλύπτει μόνο θέματα που έχουν απομαγνητοφώνηση."
+        )
 
 # --------------------------------------------------- Συνεδρίαση και θέματα
 
