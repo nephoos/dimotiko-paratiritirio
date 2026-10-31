@@ -215,6 +215,7 @@ st.dataframe(
     table,
     hide_index=True,
     width="stretch",
+    placeholder="—",  # κενές τιμές (π.χ. χωρίς Α/Α ή PDF) εμφανίζονται ως «—»
     column_config={
         "Α/Α": st.column_config.NumberColumn(width="small"),
         "Τίτλος": st.column_config.TextColumn(width="large"),
