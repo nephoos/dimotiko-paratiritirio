@@ -245,14 +245,24 @@ else:
         "Τι θέλετε να βρείτε;",
         placeholder="π.χ. καθαριότητα, ποδηλατόδρομος, παιδική φτώχεια",
     )
+    st.caption(
+        f"Η αναζήτηση καλύπτει {n_transcript} από τα {n_subjects} θέματα του δήμου "
+        "(όσα έχουν απομαγνητοφώνηση)."
+    )
     scope = st.radio(
         "Πού να γίνει η αναζήτηση",
         options=["Μόνο στον επιλεγμένο δήμο", "Σε όλους τους δήμους"],
         horizontal=True,
         label_visibility="collapsed",
     )
-    if query.strip():
-        results = search(query, city=city if scope == "Μόνο στον επιλεγμένο δήμο" else None)
+    only_city = scope == "Μόνο στον επιλεγμένο δήμο"
+    if only_city and n_transcript == 0:
+        st.info(
+            "Ο δήμος αυτός δεν έχει απομαγνητοφωνήσεις στο dataset, οπότε η αναζήτηση "
+            "δεν μπορεί να βρει αποτελέσματα. Δοκιμάστε την αναζήτηση σε όλους τους δήμους."
+        )
+    elif query.strip():
+        results = search(query, city=city if only_city else None)
         if results.empty:
             st.write("Δεν βρέθηκαν συζητήσεις με απομαγνητοφώνηση σε αυτόν τον δήμο.")
         for result in results.itertuples():
