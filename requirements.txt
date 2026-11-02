@@ -5,5 +5,7 @@ streamlit==1.66.1
 plotly==7.1.0
 numpy==2.5.4
 sentence-transformers==6.2.0
-google-genai==2.34.0
-python-dotenv==1.2.4
+# PyTorch μόνο για CPU. Online (Linux, Python 3.12) παίρνουμε το έτοιμο wheel χωρίς CUDA,
+# που είναι πολύ μικρότερο. Στα Windows το torch του PyPI είναι ήδη μόνο για CPU.
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux"
+torch==2.15.0 ; sys_platform != "linux"

@@ -19,10 +19,12 @@ DATA_DIR = Path(__file__).parent / "data"
 HF_REPO_ID = "glossAPI/OpenCouncil"
 HF_FILENAME = "open_council_20260603.parquet"
 
-# Ευρετήριο αναζήτησης (το φτιάχνει το build_index.py)
+# Ευρετήριο αναζήτησης (το φτιάχνει το build_index.py). Online κατεβαίνει από
+# ιδιωτικό dataset στο Hugging Face, γιατί περιέχει κείμενα από το gated dataset.
 SEARCH_MODEL = "intfloat/multilingual-e5-small"
-CHUNKS_FILE = DATA_DIR / "search_chunks.parquet"
-EMBEDDINGS_FILE = DATA_DIR / "search_embeddings.npy"
+INDEX_REPO_ID = "nefelitheofanopoulou/paratiritirio-index"
+CHUNKS_FILENAME = "search_chunks.parquet"
+EMBEDDINGS_FILENAME = "search_embeddings.npy"
 
 # Αυτόματες συνόψεις συνεδριάσεων (τις φτιάχνει το build_summaries.py)
 SUMMARIES_DIR = Path(__file__).parent / "summaries"
@@ -51,18 +53,18 @@ def get_hf_token():
         return None
 
 
-def get_data_file():
-    """Επιστρέφει το αρχείο parquet. Αν δεν υπάρχει στο data/, το κατεβάζει."""
-    local_file = DATA_DIR / HF_FILENAME
+def get_hf_file(repo_id, filename):
+    """Επιστρέφει ένα αρχείο από dataset του Hugging Face. Αν δεν υπάρχει στο data/, το κατεβάζει."""
+    local_file = DATA_DIR / filename
     if local_file.exists():
         return local_file
 
     from huggingface_hub import hf_hub_download
 
-    with st.spinner("Κατέβασμα δεδομένων από το Hugging Face…"):
+    with st.spinner(f"Κατέβασμα {filename} από το Hugging Face…"):
         path = hf_hub_download(
-            repo_id=HF_REPO_ID,
-            filename=HF_FILENAME,
+            repo_id=repo_id,
+            filename=filename,
             repo_type="dataset",
             local_dir=DATA_DIR,
             token=get_hf_token(),
@@ -73,7 +75,7 @@ def get_data_file():
 @st.cache_data(show_spinner="Φόρτωση δεδομένων…")
 def load_data():
     """Φορτώνει και καθαρίζει τα δεδομένα. Το αποτέλεσμα κρατιέται στην cache."""
-    df = pd.read_parquet(get_data_file(), columns=COLUMNS)
+    df = pd.read_parquet(get_hf_file(HF_REPO_ID, HF_FILENAME), columns=COLUMNS)
 
     # Ημερομηνία σε ώρα Ελλάδας
     df["meeting_date"] = (
@@ -109,10 +111,23 @@ def load_search_model():
     return SentenceTransformer(SEARCH_MODEL, device="cpu")
 
 
-@st.cache_data(show_spinner="Φόρτωση ευρετηρίου αναζήτησης…")
+# cache_resource: ένα κοινό αντίγραφο για όλους τους χρήστες. Το cache_data θα έδινε
+# νέο αντίγραφο σε κάθε αναζήτηση. Η εφαρμογή δεν αλλάζει ποτέ το ευρετήριο.
+@st.cache_resource(show_spinner="Φόρτωση ευρετηρίου αναζήτησης…")
 def load_search_index():
     """Επιστρέφει τα κομμάτια των συζητήσεων και τα embeddings τους."""
-    return pd.read_parquet(CHUNKS_FILE), np.load(EMBEDDINGS_FILE)
+    chunks_file = get_hf_file(INDEX_REPO_ID, CHUNKS_FILENAME)
+    embeddings_file = get_hf_file(INDEX_REPO_ID, EMBEDDINGS_FILENAME)
+    return pd.read_parquet(chunks_file), np.load(embeddings_file)
+
+
+def search_index_available():
+    """Αν φορτώνει το ευρετήριο. Μια αποτυχία δεν μένει στην cache, άρα ξαναδοκιμάζει."""
+    try:
+        load_search_index()
+        return True
+    except Exception:
+        return False
 
 
 def search(query, city=None, top_k=10):
@@ -220,8 +235,11 @@ with right:
 
 st.subheader("Αναζήτηση στις συζητήσεις")
 
-if not (CHUNKS_FILE.exists() and EMBEDDINGS_FILE.exists()):
-    st.info("Δεν βρέθηκε ευρετήριο αναζήτησης. Τρέξτε πρώτα: `python build_index.py`")
+if not search_index_available():
+    st.info(
+        "Η αναζήτηση δεν είναι διαθέσιμη αυτή τη στιγμή (δεν βρέθηκε το ευρετήριο). "
+        "Τοπικά φτιάχνεται με: `python build_index.py`"
+    )
 else:
     query = st.text_input(
         "Τι θέλετε να βρείτε;",

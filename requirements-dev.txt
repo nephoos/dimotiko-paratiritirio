@@ -1,0 +1,5 @@
+# Επιπλέον πακέτα μόνο για τοπική χρήση (build_summaries.py με το Gemini).
+# Η online εφαρμογή χρειάζεται μόνο το requirements.txt.
+-r requirements.txt
+google-genai==2.34.0
+python-dotenv==1.2.4
